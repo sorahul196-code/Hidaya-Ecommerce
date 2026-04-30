@@ -13,12 +13,37 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { query, withTransaction, initSchema, get } from './db.js';
-import { mountWhatsAppRoutes, sendPdfToNumber, sendOrderNotification, MessageMedia, getWhatsAppStatus, sendTextToNumber } from './whatsapp.js';
 const ADMIN_EMAIL = process.env.VITE_ADMIN_EMAIL || 'hidayaquery@gmail.com';
 
-// Verify OWNER_WHATSAPP_NUMBERS is set
-if (!process.env.OWNER_WHATSAPP_NUMBERS) {
-  console.warn('WARNING: OWNER_WHATSAPP_NUMBERS environment variable is not set. Owner notifications will not be sent.');
+// Verify OWNER_EMAIL is set
+if (!process.env.OWNER_EMAIL) {
+  console.warn('WARNING: OWNER_EMAIL environment variable is not set. Owner notifications will not be sent.');
+}
+
+async function sendEmail(to, subject, text, html, attachments = []) {
+  if (!process.env.SMTP_HOST) {
+    console.warn('SMTP not configured, cannot send email to', to);
+    return;
+  }
+  try {
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
+    });
+    return await transporter.sendMail({
+      from: process.env.MAIL_FROM || 'no-reply@example.com',
+      to,
+      subject,
+      text,
+      html,
+      attachments
+    });
+  } catch (e) {
+    console.error('Email sending failed:', e.message);
+    throw e;
+  }
 }
 
 const app = express();
@@ -122,12 +147,12 @@ app.post('/api/orders', async (req, res) => {
         );
       }
 
-      // Trigger WhatsApp notification with COD details
-      await sendOrderNotification({
-        orderData: { customer, items, shipping, tax, total, codSurcharge, paymentMethod },
-        customerMobile: customer.mobileNumber,
-        ownerMobiles: process.env.OWNER_WHATSAPP_NUMBERS ? process.env.OWNER_WHATSAPP_NUMBERS.split(',') : [],
-      }).catch(console.error);
+      // Trigger Email notification with COD details
+      const ownerEmails = process.env.OWNER_EMAIL ? process.env.OWNER_EMAIL.split(',') : [ADMIN_EMAIL];
+      const emailText = `New Order from ${customer.name || customer.firstName || 'Customer'}.\nTotal: ${total}\nPayment: ${paymentMethod}`;
+      for (const email of ownerEmails) {
+        await sendEmail(email.trim(), 'New Order Received', emailText).catch(console.error);
+      }
 
       return { orderId, payment_method }; // Return for frontend
     });
@@ -221,41 +246,27 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-app.post('/api/whatsapp/admin-otp/request', async (req, res) => {
+app.post('/api/admin/auth-otp/request', async (req, res) => {
   try {
     const { adminEmail } = req.body;
     if (adminEmail !== ADMIN_EMAIL) {
       return res.status(403).json({ error: 'Forbidden: Not an admin user.' });
     }
 
-    const ownerNumbers = (process.env.OWNER_WHATSAPP_NUMBERS || '').split(',').map(n => n.trim()).filter(Boolean);
-    if (!ownerNumbers.length) {
-      return res.status(500).json({ error: 'Owner WhatsApp number not configured on server.' });
-    }
-
-    const wa = getWhatsAppStatus();
-    if (!wa.ready) return res.status(503).json({ error: 'WhatsApp service unavailable.' });
-
     const otp = generateOtp();
     const expiresAtSql = "datetime('now', '+5 minutes')";
     await query("INSERT INTO otp_verifications (mobile_number, otp, purpose, expires_at) VALUES (?, ?, ?, " + expiresAtSql + ")", [adminEmail, otp, 'admin_login']);
 
     const message = `Your Admin Panel OTP is: ${otp}. It is valid for 5 minutes.`;
-    for (const number of ownerNumbers) {
-      try {
-        await sendTextToNumber({ toMobile: number, message });
-      } catch (e) {
-        console.warn(`Failed to send admin OTP to ${number}:`, e.message);
-      }
-    }
+    await sendEmail(adminEmail, 'Admin Panel OTP', message);
 
-    res.json({ success: true, message: 'OTP sent to owner(s).' });
+    res.json({ success: true, message: 'OTP sent to admin email.' });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.post('/api/whatsapp/admin-otp/verify', async (req, res) => {
+app.post('/api/admin/auth-otp/verify', async (req, res) => {
   const { adminEmail, otp } = req.body;
   if (adminEmail !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
 
@@ -267,13 +278,13 @@ app.post('/api/whatsapp/admin-otp/verify', async (req, res) => {
 });
 
 // -----------------------------
-// WhatsApp OTP Endpoints
+// Email OTP Endpoints
 // -----------------------------
-const requestOtpSchema = z.object({ phone: z.string().min(6).max(20) });
+const requestOtpSchema = z.object({ email: z.string().email() });
 const registerWithOtpSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1),
-  phone: z.string().min(6).max(20),
+  phone: z.string().min(6).max(20).optional().nullable(),
   address: z.string().optional().nullable(),
   password: z.string().min(6),
   otp: z.string().length(6),
@@ -302,28 +313,19 @@ function maskPhone(p) {
 
 app.post('/api/auth/request-otp', otpLimiterRegistration, async (req, res) => {
   try {
-    const { phone } = requestOtpSchema.parse(req.body || {});
-    const exists = await query('SELECT id FROM users WHERE phone = ?', [phone]);
-    if (exists.length) return res.status(409).json({ error: 'Phone already registered' });
-
-    const wa = getWhatsAppStatus();
-    if (!wa.ready) return res.status(503).json({ error: 'WhatsApp service unavailable' });
+    const { email } = requestOtpSchema.parse(req.body || {});
+    const exists = await query('SELECT id FROM users WHERE email = ?', [email]);
+    if (exists.length) return res.status(409).json({ error: 'Email already registered' });
 
     const otp = generateOtp();
     const expiresAtSql = "datetime('now', '+5 minutes')";
-    await query('INSERT INTO otp_verifications (mobile_number, otp, purpose, expires_at) VALUES (?, ?, ?, ' + expiresAtSql + ')', [phone, otp, 'registration']);
+    await query('INSERT INTO otp_verifications (mobile_number, otp, purpose, expires_at) VALUES (?, ?, ?, ' + expiresAtSql + ')', [email, otp, 'registration']);
 
-    // Attempt send via WhatsApp; proceed even if not registered to keep API consistent
     const message = `Your registration OTP is ${otp}. Valid for 5 minutes.`;
-    try {
-      const sent = await sendTextToNumber({ toMobile: phone, message });
-      if (!sent) console.warn('WhatsApp: number not registered for', phone);
-    } catch (e) {
-      console.warn('WhatsApp send failed (request-otp):', e.message);
-    }
+    await sendEmail(email, 'Registration OTP', message);
 
-    console.log(`OTP sent to ${phone} for registration`);
-    res.json({ success: true, message: `OTP sent to ${phone}` });
+    console.log(`OTP sent to ${email} for registration`);
+    res.json({ success: true, message: `OTP sent to ${email}` });
   } catch (e) {
     if (e instanceof z.ZodError) return res.status(400).json({ error: e.errors.map(er => er.message).join(', ') });
     res.status(500).json({ error: e.message });
@@ -335,14 +337,16 @@ app.post('/api/auth/register-with-otp', async (req, res) => {
     const data = registerWithOtpSchema.parse(req.body || {});
     const [emailExisting] = await query('SELECT id FROM users WHERE email = ?', [data.email]);
     if (emailExisting) return res.status(409).json({ error: 'Email already registered' });
-    const [phoneExisting] = await query('SELECT id FROM users WHERE phone = ?', [data.phone]);
-    if (phoneExisting) return res.status(409).json({ error: 'Phone already registered' });
+    if (data.phone) {
+      const [phoneExisting] = await query('SELECT id FROM users WHERE phone = ?', [data.phone]);
+      if (phoneExisting) return res.status(409).json({ error: 'Phone already registered' });
+    }
 
-    const otpRow = await get("SELECT id FROM otp_verifications WHERE mobile_number = ? AND otp = ? AND purpose = 'registration' AND expires_at > datetime('now') ORDER BY id DESC LIMIT 1", [data.phone, data.otp]);
+    const otpRow = await get("SELECT id FROM otp_verifications WHERE mobile_number = ? AND otp = ? AND purpose = 'registration' AND expires_at > datetime('now') ORDER BY id DESC LIMIT 1", [data.email, data.otp]);
     if (!otpRow) return res.status(401).json({ error: 'Invalid or expired OTP' });
 
     const passwordHash = await bcrypt.hash(data.password, 10);
-    const result = await query('INSERT INTO users (email, name, phone, address, password_hash) VALUES (?, ?, ?, ?, ?)', [data.email, data.name, data.phone, data.address || null, passwordHash]);
+    const result = await query('INSERT INTO users (email, name, phone, address, password_hash) VALUES (?, ?, ?, ?, ?)', [data.email, data.name, data.phone || null, data.address || null, passwordHash]);
     const userId = result.insertId;
     await query('DELETE FROM otp_verifications WHERE id = ?', [otpRow.id]);
 
@@ -357,26 +361,16 @@ app.post('/api/auth/register-with-otp', async (req, res) => {
 app.post('/api/auth/reset-password/request-otp', otpLimiterReset, async (req, res) => {
   try {
     const { email } = resetPasswordRequestSchema.parse(req.body || {});
-    const userRows = await query('SELECT id, phone FROM users WHERE email = ?', [email]);
+    const userRows = await query('SELECT id FROM users WHERE email = ?', [email]);
     if (!userRows.length) return res.status(404).json({ error: 'User not found' });
-    const phone = userRows[0].phone;
-    if (!phone) return res.status(400).json({ error: 'Phone number required' });
-
-    const wa = getWhatsAppStatus();
-    if (!wa.ready) return res.status(503).json({ error: 'WhatsApp service unavailable' });
 
     const otp = generateOtp();
     const expiresAtSql = "datetime('now', '+5 minutes')";
-    await query('INSERT INTO otp_verifications (mobile_number, otp, purpose, expires_at) VALUES (?, ?, ?, ' + expiresAtSql + ')', [phone, otp, 'password_reset']);
+    await query('INSERT INTO otp_verifications (mobile_number, otp, purpose, expires_at) VALUES (?, ?, ?, ' + expiresAtSql + ')', [email, otp, 'password_reset']);
 
-    try {
-      const sent = await sendTextToNumber({ toMobile: phone, message: `Your password reset OTP is ${otp}. Valid for 5 minutes.` });
-      if (!sent) console.warn('WhatsApp: number not registered for', phone);
-    } catch (e) {
-      console.warn('WhatsApp send failed (reset-password/request-otp):', e.message);
-    }
+    await sendEmail(email, 'Password Reset OTP', `Your password reset OTP is ${otp}. Valid for 5 minutes.`);
 
-    res.json({ success: true, maskedPhone: maskPhone(phone) });
+    res.json({ success: true, message: `OTP sent to ${email}` });
   } catch (e) {
     if (e instanceof z.ZodError) return res.status(400).json({ error: e.errors.map(er => er.message).join(', ') });
     res.status(500).json({ error: e.message });
@@ -387,12 +381,11 @@ app.post('/api/auth/reset-password/verify-otp', async (req, res) => {
   try {
     const { email, otp, newPassword, confirmPassword } = resetPasswordVerifySchema.parse(req.body || {});
     if (newPassword !== confirmPassword) return res.status(400).json({ error: "Passwords don't match" });
-    const userRows = await query('SELECT id, phone FROM users WHERE email = ?', [email]);
+    const userRows = await query('SELECT id FROM users WHERE email = ?', [email]);
     if (!userRows.length) return res.status(404).json({ error: 'User not found' });
-    const { id: userId, phone } = userRows[0];
-    if (!phone) return res.status(400).json({ error: 'Phone number required' });
+    const { id: userId } = userRows[0];
 
-    const otpRow = await get("SELECT id FROM otp_verifications WHERE mobile_number = ? AND otp = ? AND purpose = 'password_reset' AND expires_at > datetime('now') ORDER BY id DESC LIMIT 1", [phone, otp]);
+    const otpRow = await get("SELECT id FROM otp_verifications WHERE mobile_number = ? AND otp = ? AND purpose = 'password_reset' AND expires_at > datetime('now') ORDER BY id DESC LIMIT 1", [email, otp]);
     if (!otpRow) return res.status(401).json({ error: 'Authentication failed: Invalid or expired OTP' });
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
@@ -447,19 +440,18 @@ app.post('/api/orders/:id/send-cancel-otp', authMiddleware, async (req, res) => 
     if (!order) return res.status(404).json({ error: 'Pending order not found or you do not own it' });
 
     const user = await get('SELECT name, email, phone FROM users WHERE id = ?', [userId]);
-    if (!user.phone) return res.status(400).json({ error: 'No mobile number on file for OTP' });
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
     const expires = new Date(Date.now() + 5 * 60 * 1000); // 5 mins
     cancelOtps.set(`${orderId}_${userId}`, { otp, expires });
 
-    // Send OTP via WhatsApp
-    await sendTextToNumber({
-      toMobile: user.phone,
-      message: `Your OTP to cancel Order #${orderId}: ${otp}. Expires in 5 minutes. Do not share.`
-    });
+    await sendEmail(
+      user.email,
+      'Order Cancel OTP',
+      `Your OTP to cancel Order #${orderId}: ${otp}. Expires in 5 minutes. Do not share.`
+    );
 
-    res.json({ success: true, message: 'OTP sent to your mobile' });
+    res.json({ success: true, message: 'OTP sent to your email' });
   } catch (e) {
     console.error('Error sending cancel OTP:', e.message);
     res.status(500).json({ error: e.message });
@@ -503,15 +495,14 @@ app.post('/api/orders/:id/verify-cancel-otp', authMiddleware, async (req, res) =
       ]
     );
 
-    // Notify owner via WhatsApp with details
-    if (process.env.OWNER_WHATSAPP_NUMBERS) {
-      const ownerNumbers = process.env.OWNER_WHATSAPP_NUMBERS.split(',').map(num => num.trim());
-      for (const number of ownerNumbers) {
-        await sendTextToNumber({
-          toMobile: number,
-          message: `🔔 Order #${orderId} has been cancelled by user ${user.name} (ID: ${userId}, Email: ${user.email}, Mobile: ${user.phone}). Reason: ${reason}.`
-        }).catch(e => console.error(`Failed to notify owner ${number}:`, e.message));
-      }
+    // Notify owner via Email with details
+    const ownerEmails = process.env.OWNER_EMAIL ? process.env.OWNER_EMAIL.split(',') : [ADMIN_EMAIL];
+    for (const email of ownerEmails) {
+      await sendEmail(
+        email.trim(),
+        `Order Cancelled: #${orderId}`,
+        `🔔 Order #${orderId} has been cancelled by user ${user.name} (ID: ${userId}, Email: ${user.email}, Mobile: ${user.phone}). Reason: ${reason}.`
+      ).catch(e => console.error(`Failed to notify owner ${email}:`, e.message));
     }
 
     res.json({ success: true, message: 'Order cancelled successfully' });
@@ -564,8 +555,7 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, db: 'sqlite' });
 });
 
-// Mount WhatsApp unified routes under /api
-mountWhatsAppRoutes(app);
+// Removed mountWhatsAppRoutes
 
 async function generateLabelPdfBase64({ orderId, recipientName, addressText, trackingNumber, customerPhone, items }) {
   const pdfDoc = await PDFDocument.create();
@@ -765,15 +755,18 @@ app.post('/api/orders/from-cart', async (req, res) => {
           await query('UPDATE orders SET invoice_url = ? WHERE id = ?', [labelUrl, orderId]);
         }
 
-        const defaultOwnerMobiles = (process.env.OWNER_WHATSAPP_NUMBERS || '').split(',').map(num => num.trim()).filter(Boolean);
-        const payload = { 
-          orderData: { customer, items, shipping, tax: 0, total }, 
-          customerMobile: customer.mobileNumber, 
-          ownerMobiles: ownerMobiles || defaultOwnerMobiles,
-          labelFilePath: filePath,
-          trackingNumber
-        };
-        await sendOrderNotification(payload).catch((e) => console.warn(`[${traceId}] WhatsApp notification failed:`, e.message));
+        const defaultOwnerEmails = process.env.OWNER_EMAIL ? process.env.OWNER_EMAIL.split(',') : [ADMIN_EMAIL];
+        for (const ownerEmail of defaultOwnerEmails) {
+          if (ownerEmail.trim()) {
+            await sendEmail(
+              ownerEmail.trim(), 
+              `New Order Received: #${orderId}`, 
+              `Order #${orderId} created.\nTracking: ${trackingNumber}\nFrom: ${customer.name || customer.firstName}`, 
+              undefined, 
+              [{ filename: `ShippingLabel_${orderId}.pdf`, path: filePath }]
+            ).catch((e) => console.warn(`[${traceId}] Email notification failed:`, e.message));
+          }
+        }
       } catch (e) {
         console.warn(`[${traceId}] WhatsApp notification or label generation failed:`, e.message);
       }
@@ -865,19 +858,19 @@ app.patch('/api/orders/:id/status', async (req, res) => {
           await query('UPDATE orders SET invoice_url = ? WHERE id = ?', [invoiceUrl, orderRow.id]);
 
           try {
-            const [userRow] = await query('SELECT phone FROM users WHERE id = ?', [orderRow.user_id]);
-            const ownerMobiles = (process.env.OWNER_WHATSAPP_NUMBERS || '').split(',').map(num => num.trim()).filter(Boolean);
-            for (const ownerNumber of ownerMobiles) {
-              if (ownerNumber) {
-                await sendPdfToNumber({ toMobile: ownerNumber, filePath: invoicePath, caption: `📄 Invoice generated for Order ${orderRow.id}` });
-                console.log(`Invoice sent to owner ${ownerNumber} for order ${orderRow.id}`);
+            const [userRow] = await query('SELECT email FROM users WHERE id = ?', [orderRow.user_id]);
+            const ownerEmails = process.env.OWNER_EMAIL ? process.env.OWNER_EMAIL.split(',') : [ADMIN_EMAIL];
+            for (const ownerEmail of ownerEmails) {
+              if (ownerEmail.trim()) {
+                await sendEmail(ownerEmail.trim(), `Invoice generated for Order ${orderRow.id}`, `📄 Invoice generated for Order ${orderRow.id}`, undefined, [{ filename: invoiceName, path: invoicePath }]);
+                console.log(`Invoice sent to owner ${ownerEmail} for order ${orderRow.id}`);
               }
             }
-            if (userRow?.phone) {
-              await sendPdfToNumber({ toMobile: userRow.phone, filePath: invoicePath, caption: `✅ Order ${orderRow.id} confirmed! Invoice attached.` });
+            if (userRow?.email) {
+              await sendEmail(userRow.email, `Order ${orderRow.id} Confirmed`, `✅ Order ${orderRow.id} confirmed! Invoice attached.`, undefined, [{ filename: invoiceName, path: invoicePath }]);
             }
           } catch (e) {
-            console.warn('Invoice WhatsApp send failed:', e.message);
+            console.warn('Invoice Email send failed:', e.message);
           }
         }
       } catch (e) {
@@ -986,6 +979,37 @@ app.get('/api/admin/invoices/:orderId', async (req, res) => {
   }
 });
 
+app.post('/api/invoices/:id/send-email', async (req, res) => {
+  try {
+    const { pdfUrl, email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email required' });
+    
+    // Convert pdfUrl to local path or use existing PDF generation logic.
+    // Given the previous setup, pdfUrl comes from /api/invoices/:id/generate
+    // For safety, let's just generate the invoice path directly
+    const invoiceName = `Invoice_${req.params.id}.pdf`;
+    const invoicePath = path.resolve(invoicesDir, invoiceName);
+    
+    // Check if invoice exists
+    let exists = false;
+    try { await fs.access(invoicePath); exists = true; } catch {}
+    if (!exists) {
+       return res.status(404).json({ error: 'Invoice PDF not found, generate it first.' });
+    }
+
+    await sendEmail(
+      email, 
+      `Invoice for Order #${req.params.id}`, 
+      `Please find your invoice attached for Order #${req.params.id}.`, 
+      undefined, 
+      [{ filename: invoiceName, path: invoicePath }]
+    );
+    res.json({ ok: true, message: 'Email sent successfully' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.delete('/api/orders/:id/shipping-label', async (req, res) => {
   try {
     const [row] = await query('SELECT shipping_label_url FROM orders WHERE id = ?', [req.params.id]);
@@ -1028,7 +1052,7 @@ app.post('/api/email/send', async (req, res) => {
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: Number(process.env.SMTP_PORT || 587),
-      secure: !!process.env.SMTP_SECURE,
+      secure: process.env.SMTP_SECURE === 'true',
       auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
     });
     const info = await transporter.sendMail({ from: process.env.MAIL_FROM || 'no-reply@example.com', to, subject, html, text });

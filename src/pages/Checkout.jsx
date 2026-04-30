@@ -21,8 +21,8 @@ const Checkout = () => {
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [orderDetails, setOrderDetails] = useState(null);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('whatsapp');
-  const [showWhatsAppConfirmation, setShowWhatsAppConfirmation] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('online');
+  const [showEmailConfirmation, setShowEmailConfirmation] = useState(false);
   const [savedAddresses, setSavedAddresses] = useState([]);
   const [selectedAddress, setSelectedAddress] = useState(null);
   const [showAddressForm, setShowAddressForm] = useState(false);
@@ -161,8 +161,8 @@ const Checkout = () => {
         })
       });
       
-      // Show WhatsApp confirmation popup
-      setShowWhatsAppConfirmation(true);
+      // Show Email confirmation popup
+      setShowEmailConfirmation(true);
       if (isBuyNow) {
         sessionStorage.removeItem('buyNowItem');
       }
@@ -301,9 +301,9 @@ const Checkout = () => {
   const paymentMethods = [
     {
       id: 'Online',
-      name: 'WhatsApp Payment',
+      name: 'Online Payment',
       icon: MessageCircle,
-      description: 'Complete your payment via WhatsApp Bot',
+      description: 'Complete your payment securely online',
       color: 'from-green-500 to-green-600'
     },
     {
@@ -666,11 +666,11 @@ const Checkout = () => {
                     <input
                       type="radio"
                       name="paymentMethod"
-                      value="whatsapp"
-                      checked={selectedPaymentMethod === 'whatsapp'}
+                      value="online"
+                      checked={selectedPaymentMethod === 'online'}
                       onChange={(e) => setSelectedPaymentMethod(e.target.value)}
                     />
-                    <span className="text-sm text-gray-700">Online Payment (WhatsApp QR)</span>
+                    <span className="text-sm text-gray-700">Online Payment</span>
                   </label>
                   <label className="flex items-center space-x-2 cursor-pointer">
                     <input
@@ -691,10 +691,10 @@ const Checkout = () => {
                 <>
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                     <MessageCircle className="mr-2 h-5 w-5 text-green-500" />
-                    WhatsApp Payment
+                    Online Payment
                   </h3>
                   
-                  {/* WhatsApp Payment Information */}
+                  {/* Online Payment Information */}
                   <div className="mb-8">
                     <div className="bg-gradient-to-r from-green-50 to-green-100 border border-green-200 rounded-xl p-6">
                       <div className="flex items-center space-x-4 mb-4">
@@ -702,8 +702,8 @@ const Checkout = () => {
                           <MessageCircle className="h-6 w-6 text-white" />
                         </div>
                         <div>
-                          <h3 className="text-lg font-semibold text-gray-900">Complete Payment via WhatsApp</h3>
-                          <p className="text-sm text-gray-600">Secure and convenient payment through WhatsApp Bot</p>
+                          <h3 className="text-lg font-semibold text-gray-900">Complete Payment Online</h3>
+                          <p className="text-sm text-gray-600">Secure and convenient payment through our online portal</p>
                         </div>
                       </div>
                       
@@ -714,7 +714,7 @@ const Checkout = () => {
                         </div>
                         <div className="flex items-center space-x-2">
                           <CheckCircle className="h-4 w-4 text-green-500" />
-                          <span>QR code for easy payment</span>
+                          <span>Secure payment link</span>
                         </div>
                         <div className="flex items-center space-x-2">
                           <CheckCircle className="h-4 w-4 text-green-500" />
@@ -722,7 +722,7 @@ const Checkout = () => {
                         </div>
                         <div className="flex items-center space-x-2">
                           <CheckCircle className="h-4 w-4 text-green-500" />
-                          <span>WhatsApp notifications</span>
+                          <span>Email notifications</span>
                         </div>
                       </div>
                     </div>
@@ -735,8 +735,8 @@ const Checkout = () => {
                         <h4 className="font-medium text-blue-900">How it works:</h4>
                         <ol className="mt-2 text-sm text-blue-800 space-y-1">
                           <li>1. Click "Confirm Order" to place your order</li>
-                          <li>2. You'll receive a WhatsApp message with payment details</li>
-                          <li>3. Use the QR code or payment link to complete payment</li>
+                          <li>2. You'll receive an email with payment details</li>
+                          <li>3. Use the secure payment link to complete payment</li>
                           <li>4. Get instant confirmation and tracking updates</li>
                         </ol>
                       </div>
@@ -777,7 +777,7 @@ const Checkout = () => {
               
               <div className="flex items-center space-x-2 text-sm text-gray-600 bg-gray-50 p-4 rounded-lg mt-6">
                 <Shield className="h-4 w-4" />
-                <span>Your payment will be processed securely {selectedPaymentMethod === 'COD' ? 'upon delivery' : 'through WhatsApp'}</span>
+                <span>Your payment will be processed securely {selectedPaymentMethod === 'COD' ? 'upon delivery' : 'online'}</span>
               </div>
               
               <form onSubmit={handleSubmit} className="space-y-6 mt-6">
@@ -917,7 +917,7 @@ const Checkout = () => {
             
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Button onClick={() => {
-                  setShowWhatsAppConfirmation(false);
+                  setShowEmailConfirmation(false);
                   setStep(1);
                   <CheckCircle className="h-6 w-6" />
                 }}
@@ -929,8 +929,8 @@ const Checkout = () => {
           </motion.div>
         )}
 
-        {/* WhatsApp Confirmation Modal */}
-        {showWhatsAppConfirmation && (
+        {/* Email Confirmation Modal */}
+        {showEmailConfirmation && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
@@ -938,18 +938,18 @@ const Checkout = () => {
               transition={{ duration: 0.3 }}
               className="bg-white rounded-2xl shadow-xl max-w-md w-full p-8 text-center"
             >
-              <div className="text-6xl mb-4">📱</div>
+              <div className="text-6xl mb-4">📧</div>
               <h3 className="text-2xl font-bold text-gray-900 mb-4">Order Placed Successfully!</h3>
               <p className="text-gray-600 mb-6">
                 {selectedPaymentMethod === 'COD' 
-                  ? 'Your COD order has been placed. Check WhatsApp for confirmation details.' 
-                  : 'Your order has been placed. Please check your WhatsApp for payment details and complete the payment.'}
+                  ? 'Your COD order has been placed. Check your email for confirmation details.' 
+                  : 'Your order has been placed. Please check your email for payment details and complete the payment.'}
               </p>
               
               <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
                 <div className="flex items-center justify-center space-x-2 text-green-700">
                   <MessageCircle className="h-5 w-5" />
-                  <span className="font-medium">WhatsApp message sent to {formData.mobileNumber}</span>
+                  <span className="font-medium">Confirmation sent to {formData.email}</span>
                 </div>
               </div>
               
@@ -957,21 +957,21 @@ const Checkout = () => {
                 {selectedPaymentMethod === 'COD' ? (
                   <>
                     <p>• Pay cash upon delivery</p>
-                    <p>• Track your order via WhatsApp updates</p>
+                    <p>• Track your order via email updates</p>
                     <p>• Contact support if needed</p>
                   </>
                 ) : (
                   <>
-                    <p>• Check your WhatsApp for payment QR code</p>
+                    <p>• Check your email for a secure payment link</p>
                     <p>• Complete payment using UPI or other methods</p>
-                    <p>• You'll receive order updates via WhatsApp</p>
+                    <p>• You'll receive order updates via email</p>
                   </>
                 )}
               </div>
               
               <Button
                 onClick={() => {
-                  setShowWhatsAppConfirmation(false);
+                  setShowEmailConfirmation(false);
                   isBuyNow ? sessionStorage.removeItem('buyNowItem') : clearCart();
                   setStep(4);
                 }}

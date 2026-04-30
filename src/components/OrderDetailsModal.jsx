@@ -47,7 +47,7 @@ const OrderDetailsModal = ({ order, onClose }) => {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.error || 'Failed to send OTP');
       }
-      toast({ title: 'OTP Sent', description: 'Check your mobile via WhatsApp' });
+      toast({ title: 'OTP Sent', description: 'Check your email for the OTP' });
       setStep('otp');
     } catch (error) {
       toast({ title: 'Failed', description: error.message, variant: 'destructive' });
@@ -235,7 +235,7 @@ const OrderDetailsModal = ({ order, onClose }) => {
               {step === 'otp' && (
                 <div className="space-y-4">
                   <Input
-                    placeholder="Enter 6-digit OTP from WhatsApp"
+                    placeholder="Enter 6-digit OTP from email"
                     value={otp}
                     onChange={(e) => setOtp(e.target.value)}
                     maxLength={6}

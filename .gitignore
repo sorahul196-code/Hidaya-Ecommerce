@@ -21,3 +21,6 @@ Desktop.ini
 *.temp
 package-lock.json
 yarn.lock
+ecommerce.sqlite
+ecommerce.sqlite-shm
+ecommerce.sqlite-wal

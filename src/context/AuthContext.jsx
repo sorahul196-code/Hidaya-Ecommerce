@@ -101,15 +101,15 @@ export const AuthProvider = ({ children }) => {
   };
 
   // OTP-based registration helpers
-  const requestRegistrationOtp = async (phone) => {
+  const requestRegistrationOtp = async (email) => {
     const res = await fetch('/api/auth/request-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone }),
+      body: JSON.stringify({ email }),
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || 'Failed to request OTP');
-    toast({ title: 'OTP Sent', description: `OTP sent to ${phone}` });
+    toast({ title: 'OTP Sent', description: `OTP sent to ${email}` });
     return json;
   };
 
@@ -145,7 +145,7 @@ export const AuthProvider = ({ children }) => {
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || 'Failed to request OTP');
-    toast({ title: 'OTP Sent', description: `OTP sent to your WhatsApp (${json.maskedPhone})` });
+    toast({ title: 'OTP Sent', description: `OTP sent to your email` });
     return json;
   };
 

@@ -72,7 +72,7 @@ const DashboardOverview = () => {
     .slice(0, 5);
 
   const totalCodOrders = filteredOrders.filter(o => o.payment_method === 'COD').length;
-  const totalOnlineOrders = filteredOrders.filter(o => o.payment_method === 'whatsapp').length;
+  const totalOnlineOrders = filteredOrders.filter(o => o.payment_method === 'online').length;
 
   const stats = [
     {

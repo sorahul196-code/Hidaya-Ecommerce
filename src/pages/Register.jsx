@@ -69,7 +69,7 @@ const Register = () => {
 
     try {
       if (!otpStep) {
-        await requestRegistrationOtp(formData.mobile.trim());
+        await requestRegistrationOtp(formData.email.trim());
         setOtpStep(true);
       } else {
         const user = await registerWithOtp({
@@ -178,7 +178,7 @@ const Register = () => {
                 maxLength={6}
                 disabled={isAuthenticating}
               />
-              <p className="text-xs text-gray-500">We sent a 6-digit OTP to your WhatsApp.</p>
+              <p className="text-xs text-gray-500">We sent a 6-digit OTP to your email address.</p>
             </div>
           )}
           
