@@ -1,0 +1,23 @@
+/node_modules
+/dist
+/.env
+/coverage
+/.vscode
+.DS_Store
+*.log
+*.tsbuildinfo
+# Ignore IDE specific files
+.idea/
+*.sublime-project
+*.sublime-workspace
+# Ignore OS specific files
+Thumbs.db
+Desktop.ini
+# Ignore build artifacts
+/build
+/target
+# Ignore temporary files
+*.tmp
+*.temp
+package-lock.json
+yarn.lock

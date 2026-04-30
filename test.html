@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>URL / Base64 to QR</title>
+</head>
+<body>
+    <div style="text-align:center; margin:20px;">
+        <h2>URL or data:image/png;base64 → QR</h2>
+        <textarea id="urlInput" placeholder="Paste a URL or data:image/png;base64,... here" 
+                            style="width:90%;height:120px;padding:8px;"></textarea>
+        <br><br>
+        <button onclick="generateQR()">Generate QR Code</button>
+        <button id="downloadBtn" style="display:none;" onclick="downloadImage()">Download PNG</button>
+        <button id="openBtn" style="display:none;" onclick="openImage()">Open in new tab</button>
+        <div id="qrcode" style="margin-top:20px;"></div>
+    </div>
+
+    <script>
+        function generateQR() {
+            var input = document.getElementById("urlInput").value.trim();
+            if (!input) { alert("Please enter a URL or data URI"); return; }
+
+            var imgSrc;
+            var isDataUri = /^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(input);
+
+            if (isDataUri) {
+                // User pasted the data:image/png;base64,... string
+                imgSrc = input;
+            } else {
+                // Treat input as a URL and use Google Chart API to build QR image URL
+                var encoded = encodeURIComponent(input);
+                imgSrc = "https://chart.googleapis.com/chart?cht=qr&chs=250x250&chl=" + encoded;
+            }
+
+            // Show image and buttons
+            var qrcodeDiv = document.getElementById("qrcode");
+            qrcodeDiv.innerHTML = "<img id='qrImg' src='" + imgSrc + "' alt='QR Code' style='max-width:250px;max-height:250px;border:1px solid #ccc;' />";
+            var dl = document.getElementById("downloadBtn");
+            var op = document.getElementById("openBtn");
+            dl.style.display = "inline-block";
+            op.style.display = "inline-block";
+
+            // Save current src to downloadBtn via dataset
+            dl.dataset.src = imgSrc;
+            op.dataset.src = imgSrc;
+        }
+
+        function downloadImage() {
+            var src = document.getElementById("downloadBtn").dataset.src;
+            // If it's a data URI, the anchor download works directly.
+            // For external URLs (Google API) some browsers may ignore the download attribute due to CORS.
+            var a = document.createElement("a");
+            a.href = src;
+            a.download = "qrcode.png";
+            // For safety append to DOM, click, then remove
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        }
+
+        function openImage() {
+            var src = document.getElementById("openBtn").dataset.src;
+            window.open(src, "_blank");
+        }
+    </script>
+</body>
+</html>
