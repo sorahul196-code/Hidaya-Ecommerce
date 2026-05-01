@@ -26,7 +26,6 @@ async function getDb() {
 }
 
 function exec(sql) {
-  console.log('Executing SQL (exec):', sql);
   return new Promise(async (resolve, reject) => {
     const db = await getDb();
     db.exec(sql, (err) => (err ? reject(err) : resolve()));
