@@ -8,7 +8,7 @@
     "dev:server": "node server/index.js",
     "dev": "concurrently -n server,client -c magenta,cyan \"npm:dev:server\" \"npm:dev:client\"",
     "db:setup": "node -e \"import('fs').then(fs=>fs.promises.readFile('schema.sql','utf-8').then(sql=>import('./server/db.js').then(m=>m.initSchema(sql))))\"",
-    "build": "node tools/generate-llms.js || true && vite build",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
